@@ -4,3 +4,8 @@ __pycache__/
 dist/
 
 *.key
+
+# Local TV credentials and diagnostics must never be committed.
+.secrets/
+known_hosts
+*.log
