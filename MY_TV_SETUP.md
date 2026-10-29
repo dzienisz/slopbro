@@ -89,33 +89,23 @@ matters later.
 
 ## Privacy / telemetry hardening (added 2026-10-29)
 
-On top of the update-domain block above, this TV also blocks LG's ACR
-(Live Plus), ad-network, and ThinQ/IoT telemetry domains, independent of
-whether the on-screen "Live Plus" toggle is on or off. This matters because
-the ACR binary (process name `sdx`) was observed still running even with
-Live Plus switched off in Settings — the toggle does not stop the process,
-only (allegedly) its reporting.
+EULA/ad-consent flags in `/var/luna/preferences/eula` were withdrawn from the
+TV's own remote (Settings → User Agreements), not by editing the file over
+SSH — that store is checksum-protected and a direct edit risks corrupting the
+EULA flow. **Withdrawing every agreement also withdraws the mandatory ones**
+(Terms of Service) and blocks the TV until at least that one is re-accepted;
+the optional ones (marketing, ad display, interest-based ads, voice) stay
+declined. Current state, confirmed via `cat /var/luna/preferences/eula`: only
+`generalTermsAllowed`/`networkAllowed`/`chpAllowed` are `true`; every
+`acr*`/`marketing*`/`voice*`/`*ads*` flag is `false`.
 
-- **Domain list**: 420 entries from the "safe" base layer of
-  [hugobatista/lg-tv-ad-block](https://github.com/hugobatista/lg-tv-ad-block)
-  (`list` file — ads, tracking, ACR/telemetry). The repo's separate
-  `list-store` ("aggressive") layer is deliberately **not** used, since it
-  can break LG Content Store app updates.
-- **Stored on the TV** at `/var/lib/webosbrew/lg-privacy-hosts.txt`.
-- **Applied by** `/var/lib/webosbrew/init.d/50-lg-privacy-hosts.sh`, which
-  webosbrew's `startup.sh` runs on every boot via `run-parts`. It layers its
-  entries on top of whatever `/etc/hosts` already is (preserving the
-  update-block bind mount above) and is idempotent (marker-guarded, safe to
-  re-run).
-- **Verify it's active**: `getent hosts ads.lgtvcommon.com` (or
-  `alphonso.tv`, `ad.lgsmartad.com`) should resolve to `0.0.0.0`; an
-  unrelated domain like `www.google.com` should resolve normally.
-- Not touched: the EULA/ad-consent flags in `/var/luna/preferences/eula`
-  (`acrAdAllowed`, `adCookie`, `doNotSellMyPersonalInformation`, etc.).
-  That store is checksum-protected and editing it directly over SSH risks
-  corrupting the EULA flow. Change these from the TV's own remote instead
-  (Settings → General → AI Service / Additional Settings → ads & privacy
-  toggles — exact menu path varies by firmware).
+A first attempt at host-level ACR/ads/telemetry blocking (420 domains from
+hugobatista/lg-tv-ad-block, applied via a hand-written
+`/var/lib/webosbrew/init.d/` script) was superseded by installing Glasshouse
+(below), which manages `/etc/hosts` itself and overwrites anything else
+living there. The hand-written script was removed rather than left to fight
+Glasshouse for the same file. If Glasshouse is ever removed, that approach is
+still valid as a fallback — see git history for the script.
 
 ### `luna-send` gotcha
 
@@ -124,6 +114,48 @@ only (allegedly) its reporting.
 `ssh host 'luna-send ...'` silently "succeeds" and tells you nothing. Force
 a pty: `ssh -tt host 'luna-send ...'` (and feed it `</dev/null` if run from
 a non-interactive script/tool, since `-tt` still needs *a* stdin).
+
+### busybox `run-parts` gotcha
+
+`run-parts` (as webosbrew's `startup.sh` calls it on `/var/lib/webosbrew/init.d/`)
+silently skips any filename containing a dot — so a script named
+`50-foo.sh` never runs, with no error anywhere. Name init.d scripts without
+an extension (`50-foo`). Glasshouse's own installer independently works
+around the same thing (writes `.50-tvweb.new`, then renames to `50-tvweb`).
+
+## Glasshouse dashboard (added 2026-10-29)
+
+[Glasshouse](https://github.com/rorygallagher2024/glasshouse) — a community
+dashboard/debloat/privacy server for rooted webOS TVs — is installed.
+
+- **Why**: a maintained alternative to hand-rolled scripts for exactly the
+  things this file was tracking manually — ad/ACR blocking (with the correct,
+  firmware-version-dependent EULA flag name, which differs by model and is
+  risky to guess at by hand), background-service debloat, OLED panel care,
+  and live CPU/RAM/temperature monitoring.
+- **Deployed** from a separate local clone (not vendored into this repo) via
+  its own `server/deploy.sh 192.168.0.161`, over SSH using the existing root
+  key (loaded into a scoped `ssh-agent` for that one command, since
+  `deploy.sh` shells out to plain `ssh root@<tv-ip>` rather than our
+  `.secrets/tv_ssh_config`).
+- **No-auth risk, mitigated at deploy time**: Glasshouse's dashboard has no
+  authentication by default and binds to `0.0.0.0:8080` — anyone on the LAN
+  can reach every control. A random 48-char token was generated
+  (`openssl rand -hex 24`) and pre-seeded into `server/config.192.168.0.161.json`
+  *before* the first deploy, so the server came up with `auth: token` from
+  its very first log line — never an unauthenticated window. The token lives
+  in `.secrets/glasshouse_token.txt` (gitignored). Open
+  `http://192.168.0.161:8080/?k=<token>` once; the browser remembers it after
+  that.
+- **Still true regardless of Glasshouse**: telnet stays off, SSH stays
+  key-only. Per Glasshouse's own `docs/SECURITY.md`, an open root telnet is a
+  far bigger exposure than anything its dashboard adds — already handled on
+  this TV.
+- Boot hook: `/var/lib/webosbrew/init.d/50-tvweb` (correctly named, no dot).
+- Use the dashboard's own **Privacy** tab to turn on its "Ads & telemetry"
+  blocking and confirm the ACR/Live Plus switch — do this from the dashboard,
+  not by scripting its API blind, since the exact EULA flag it toggles is
+  firmware-version-dependent (see its `docs/ACR.md`).
 
 ## Installed Homebrew Channel apps
 
