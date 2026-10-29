@@ -37,15 +37,21 @@ deliberately excluded from version control.
 
 ## SSH plan
 
-1. Enable SSH in Homebrew Channel: `Settings` → `Root Configuration` → `SSH`
-   on, then select `System reboot`.
-2. Generate a dedicated local `ed25519` key in `.secrets/` with permissions
-   restricted to the local user.
-3. Use the temporary local-only SSH access once to install the public key in
-   `/home/root/.ssh/authorized_keys` on the TV.
-4. Reboot the TV and verify key-only login.
-5. Keep Telnet disabled and do not place private keys, pairing files, or host
-   keys in this repository.
+SSH was enabled through Homebrew Channel, then configured and verified after a
+full TV restart.
+
+- Authentication: dedicated `ed25519` key only.
+- Fingerprint: `SHA256:Btp7WAKX6yWNpSYs6ypoGJjakhl/1Po2thcTLLSENgY`.
+- Local helper configuration: `.secrets/tv_ssh_config`.
+
+Use the helper configuration from this checkout:
+
+```sh
+ssh -F .secrets/tv_ssh_config lg-oled55bx
+```
+
+Keep Telnet disabled and do not place private keys, pairing files, or host keys
+in this repository.
 
 ## Repository layout
 
